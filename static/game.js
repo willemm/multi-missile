@@ -1,7 +1,12 @@
 const socket = io()
+
+setup_socket(socket)
+
 let player = {
     id: null,
-    name: null
+    name: null,
+    base: null,
+    connected: false
 }
 let gamecfg = {
     basesize: 25,
@@ -35,6 +40,7 @@ window.onresize = function() {
 function setup_base(mybase)
 {
     document.addEventListener('keydown', function(event) {
+        if (!player.connected) return
         let now = new Date().getTime()
         let turndir = 1
         let base = bases[mybase]
@@ -68,6 +74,7 @@ function setup_base(mybase)
         }
     })
     document.addEventListener('keyup', function(event) {
+        if (!player.connected) return
         let now = new Date().getTime()
         let base = bases[mybase]
         switch (event.keyCode) {
@@ -99,14 +106,38 @@ function setup_base(mybase)
 
 window.onload = function() {
     window.onresize()
+    setInterval(timer, 40)
+}
+
+function setup_socket(socket)
+{
+    socket.on('connect', function() {
+        player.id = sessionStorage.getItem('playerid')
+        player.base = sessionStorage.getItem('playerbase')
+        socket.on('newplayer', function(playerid) {
+            if (!player.id) {
+                player.id = playerid
+                sessionStorage.setItem('playerid', player.id)
+            }
+            socket.emit('join', player)
+        })
+        if (player) { socket.emit('join', player) } else { socket.emit('newplayer') }
+        document.body.className = 'connecting'
+    })
+    socket.on('disconnect', function() {
+        player.connected = false
+        document.body.className = 'disconnected'
+    })
     socket.on('start', function(base) {
-        bases[base.basex] = base
-        let ctx = document.getElementById('canvas').getContext('2d')
-        setInterval(timer, 40, ctx, base.basex)
+        bases[base.id] = base
+        player.base = base.id
+        sessionStorage.setItem('playerbase', player.base)
+        player.connected = true
 
         if (base.type == 'base') {
-            setup_base(base.basex)
+            setup_base(base.id)
         }
+        document.body.className = 'running'
     })
     socket.on('shot', function(shot) {
         if (shot.state == 'done') {
@@ -118,18 +149,9 @@ window.onload = function() {
         }
     })
     socket.on('base', function(base) {
-        bases[base.basex] = base
+        bases[base.id] = base
     })
 
-    player.id = sessionStorage.getItem('playerid')
-    socket.on('newplayer', function(playerid) {
-        if (!player.id) {
-            player.id = playerid
-            sessionStorage.setItem('playerid', player.id)
-            socket.emit('join', player)
-        }
-    })
-    if (player.id) { socket.emit('join', player) } else { socket.emit('newplayer') }
 }
 
 function boom(base)
@@ -177,8 +199,10 @@ function shoot(base)
 
 function timer(ctx, mybase)
 {
-    update(mybase)
-    animate(ctx, mybase)
+    if (player.connected) {
+        update(player.base)
+        animate(player.base)
+    }
 }
 
 function update(mybase)
@@ -205,8 +229,9 @@ function update(mybase)
     return now
 }
 
-function animate(ctx, mybase)
+function animate(mybase)
 {
+    let ctx = document.getElementById('canvas').getContext('2d')
     let now = new Date().getTime()
     let phase = (now % gamecfg.dashspd)/gamecfg.dashspd
 

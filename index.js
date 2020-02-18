@@ -14,8 +14,12 @@ server.listen(5000, function() {
     console.log('Starting server on port 5000')
 })
 
-let bases = [ 0, -600, 600, -300, 300 ].map(x => {
+let basenames = [ 'Charlie','Alpha','Echo','Bravo','Delta' ]
+
+let bases = [ 0, -600, 600, -300, 300 ].map((x, i) => {
     return { type: 'base'
+           , id: basenames[i]
+           , name: basenames[i]
            , basex: x
            , basey: 800
            , turn:
@@ -27,18 +31,14 @@ let bases = [ 0, -600, 600, -300, 300 ].map(x => {
            }
 })
 
-bases[1].name = 'Alpha'
-bases[3].name = 'Bravo'
-bases[0].name = 'Charlie'
-bases[4].name = 'Delta'
-bases[2].name = 'Echo'
-
 let shots = {}
 let players = {}
 
-function find_slot(player)
+function find_slot(player, socketid)
 {
+    console.log('Finding slot for player '+player.id+' (wants base '+player.base+')')
     let b = bases.find(b => b.player && (b.player.id == player.id))
+    if (!b) { b = bases.find(b => (b.player == null) && (b.id == player.base)) }
     if (!b) { b = bases.find(b => b.player == null) }
     if (!b) {
         console.log('Game is full')
@@ -46,18 +46,21 @@ function find_slot(player)
             type: 'spectator', name: 'Guest'
         }
     }
+    player.base = b.basex
     b.player = player
+    b.socketid = socketid
+    io.emit('base', b)
     return b
 }
 
 let lastplayerid = 0
 
 io.on('connection', function(socket) {
-    console.log('Connection from '+socket.conn.remoteAddress)
+    console.log('Connection from '+socket.conn.remoteAddress+' id='+socket.id)
 
     socket.on('join', (player) => {
         players[socket.id] = player
-        let sl = find_slot(player)
+        let sl = find_slot(player, socket.id)
         socket.emit('start', sl)
         for (s in shots) { socket.emit('shot', shots[s]) }
         bases.forEach(b => socket.emit('base', b))
@@ -86,6 +89,7 @@ io.on('connection', function(socket) {
         }
     })
     socket.on('disconnect', () => {
+        console.log('Disconnect socket '+socket.id)
         let socketid = socket.id
         let player = players[socketid]
         if (player) {
@@ -95,9 +99,14 @@ io.on('connection', function(socket) {
                 console.log('Player '+player.id+' disconnected from base '+base.name)
                 setTimeout(function() {
                     let player = players[socketid]
-                    let base = bases.find(b => (b.player && (b.player.id == player.id)))
-                    console.log('Removing player '+player.id+' from base '+base.name)
-                    base.player = null
+                    if (player.disconnected) {
+                        let base = bases.find(b => (b.player && (b.player.id == player.id) && (b.socketid == socketid)))
+                        if (base) {
+                            console.log('Removing player '+player.id+' from base '+base.name)
+                            base.player = null
+                            io.emit('base', base)
+                        }
+                    }
                 }, 10 * 1000)
             } else {
                 console.log('Player '+player.id+' disconnected')
