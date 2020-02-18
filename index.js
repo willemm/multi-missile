@@ -137,7 +137,7 @@ function attack()
         , targetx: Math.random() * 1600 - 800
         , targety: Math.random() * 50 + 800
         , ofa: Math.PI * 2 * Math.random()
-        , tick: new Date().getTime()
+        , tick: new Date().getTime() + 1000
         , boomtime: 500
         , boomsize: 20
         , fadetime: 300
@@ -145,12 +145,12 @@ function attack()
         }
         let dx = bomb.targetx-bomb.startx
         let dy = bomb.targety-bomb.starty
-        bomb.time = (Math.sqrt(dx*dx+dy*dy) / 600) * (Math.random() * 3000 + 8000)
+        bomb.time = (Math.sqrt(dx*dx+dy*dy) / 600) * (Math.random() * 3000 + 10000)
         bombs[bomb.id] = bomb
         io.emit('bomb',bomb)
-        setTimeout(explode, bomb.time, bomb.id)
+        setTimeout(explode, bomb.time+1000, bomb.id)
     }
-    setTimeout(attack, Math.random() * 3000)
+    setTimeout(attack, Math.random() * 5000+500)
 }
 
 function explode(bombid)

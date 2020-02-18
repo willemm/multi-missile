@@ -16,7 +16,7 @@ let gamecfg = {
     shotstart: 22,
     dashlen: 10,
     dashpart: 0.2,
-    shotspeed: 100 / 1000,
+    shotspeed: 120 / 1000,
     fadespeed: 1 / 1000,
 
     boomsize: 50,
@@ -353,42 +353,44 @@ function animate(mybase)
     for (i in bombs) {
         let b = bombs[i]
         let spos = (now - b.tick) / b.time
-        if ((b.state == 'run') && (spos > 1)) {
-            b.state = 'boom'
-            b.tick = b.tick + b.time
-        }
-        if (b.state == 'run') {
-            ctx.shadowBlur = 8
-            ctx.shadowColor = 'rgba(64,220,255,0.5)'
-            ctx.strokeStyle = 'rgba(17,102,176,1)'
-            ctx.lineWidth = 2
-            ctx.beginPath()
-            let x2 = b.startx + (b.targetx - b.startx) * spos
-            let y2 = b.starty + (b.targety - b.starty) * spos
-            ctx.moveTo(b.startx,b.starty)
-            ctx.lineTo(x2,y2)
-            ctx.stroke()
-
-            let phase = (spos/40) % 2
-            if (phase > 1) phase = 2-phase
-            ctx.shadowBlur = 2 
-            ctx.shadowColor = 'rgba(255,150,130,1)'
-            ctx.fillStyle = 'rgba(200,50,0,'+phase+')'
-            ctx.beginPath()
-            ctx.arc(x2,y2,2,0,Math.PI*2)
-            ctx.fill()
-        }
-        if (b.state == 'boom') {
-            let sfd = (now - b.tick) * gamecfg.fadespeed
-            if (sfd < 1) {
+        if (spos >= 0) {
+            if ((b.state == 'run') && (spos > 1)) {
+                b.state = 'boom'
+                b.tick = b.tick + b.time
+            }
+            if (b.state == 'run') {
                 ctx.shadowBlur = 8
-                ctx.shadowColor = 'rgba(64,220,255,'+(0.5 * (1.0-sfd))+')'
-                ctx.strokeStyle = 'rgba(17,102,176,'+(1.0-sfd)+')'
+                ctx.shadowColor = 'rgba(64,220,255,0.5)'
+                ctx.strokeStyle = 'rgba(17,102,176,1)'
                 ctx.lineWidth = 2
                 ctx.beginPath()
+                let x2 = b.startx + (b.targetx - b.startx) * spos
+                let y2 = b.starty + (b.targety - b.starty) * spos
                 ctx.moveTo(b.startx,b.starty)
-                ctx.lineTo(b.targetx,b.targety)
+                ctx.lineTo(x2,y2)
                 ctx.stroke()
+
+                let phase = (spos/40) % 2
+                if (phase > 1) phase = 2-phase
+                ctx.shadowBlur = 2 
+                ctx.shadowColor = 'rgba(255,150,130,1)'
+                ctx.fillStyle = 'rgba(200,50,0,'+phase+')'
+                ctx.beginPath()
+                ctx.arc(x2,y2,2,0,Math.PI*2)
+                ctx.fill()
+            }
+            if (b.state == 'boom') {
+                let sfd = (now - b.tick) * gamecfg.fadespeed
+                if (sfd < 1) {
+                    ctx.shadowBlur = 8
+                    ctx.shadowColor = 'rgba(64,220,255,'+(0.5 * (1.0-sfd))+')'
+                    ctx.strokeStyle = 'rgba(17,102,176,'+(1.0-sfd)+')'
+                    ctx.lineWidth = 2
+                    ctx.beginPath()
+                    ctx.moveTo(b.startx,b.starty)
+                    ctx.lineTo(b.targetx,b.targety)
+                    ctx.stroke()
+                }
             }
         }
     }
@@ -427,29 +429,31 @@ function animate(mybase)
 
     for (i in bombs) {
         let b = bombs[i]
-        if (b.state == 'boom') {
-            let bpos = (now - b.tick) / b.boomtime
-            let bsz = Math.sqrt(bpos) * b.boomsize
-            ctx.beginPath()
-            ctx.arc(b.targetx, b.targety, bsz, 0, Math.PI*2)
-            ctx.fillStyle = '#f77'
-            ctx.shadowBlur = 8
-            ctx.shadowColor = 'rgba(64,220,255,0.5)'
-            ctx.fill()
-            if (bpos >= 1) {
-                bpos = (now - b.tick - b.boomtime) / b.fadetime
-                let fsz = bpos * b.boomsize * 1.2
-                let x3 = b.targetx + Math.sin(b.ofa)*((b.boomsize*1.5)-fsz)/2
-                let y3 = b.targety - Math.cos(b.ofa)*((b.boomsize*1.5)-fsz)/2
+        if (b.tick <= now) {
+            if (b.state == 'boom') {
+                let bpos = (now - b.tick) / b.boomtime
+                let bsz = Math.sqrt(bpos) * b.boomsize
                 ctx.beginPath()
-                ctx.arc(x3, y3, fsz, 0, Math.PI*2)
-                ctx.fillStyle = 'rgba(0,17,34,1)'
-                ctx.shadowBlur = 10
-                ctx.shadowColor = 'rgba(0,17,34,1)'
+                ctx.arc(b.targetx, b.targety, bsz, 0, Math.PI*2)
+                ctx.fillStyle = '#f77'
+                ctx.shadowBlur = 8
+                ctx.shadowColor = 'rgba(64,220,255,0.5)'
                 ctx.fill()
                 if (bpos >= 1) {
-                    b.state = 'done'
-                    delete bombs[b.id]
+                    bpos = (now - b.tick - b.boomtime) / b.fadetime
+                    let fsz = bpos * b.boomsize * 1.2
+                    let x3 = b.targetx + Math.sin(b.ofa)*((b.boomsize*1.5)-fsz)/2
+                    let y3 = b.targety - Math.cos(b.ofa)*((b.boomsize*1.5)-fsz)/2
+                    ctx.beginPath()
+                    ctx.arc(x3, y3, fsz, 0, Math.PI*2)
+                    ctx.fillStyle = 'rgba(0,17,34,1)'
+                    ctx.shadowBlur = 10
+                    ctx.shadowColor = 'rgba(0,17,34,1)'
+                    ctx.fill()
+                    if (bpos >= 1) {
+                        b.state = 'done'
+                        delete bombs[b.id]
+                    }
                 }
             }
         }
