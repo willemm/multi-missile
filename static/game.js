@@ -18,9 +18,11 @@ let gamecfg = {
     boomspeed: 1 / 2000,
     boomfade: 0.3
 }
-let myshots = []
+let shotid = 0
 let shots = {}
-let shotcount = 0
+let bases = {}
+let pressed_up = false
+let pressed_down = false
 
 // let tmr
 // let ctx
@@ -30,85 +32,93 @@ window.onresize = function() {
     canvas.width = canvas.height * canvas.offsetWidth / canvas.offsetHeight
 }
 
+function setup_base(mybase)
+{
+    document.addEventListener('keydown', function(event) {
+        let now = new Date().getTime()
+        let turndir = 1
+        let base = bases[mybase]
+        switch (event.keyCode) {
+            case 37: // LEFT
+            case 65: // A
+                turndir = -1
+                // fallthrough
+            case 39: // RIGHT
+            case 68: // D
+                if (!base.turn.dir) {
+                    base.turn.start = now
+                    base.turn.dir = turndir
+                    socket.emit('base',base)
+                }
+                break
+            case 38: // UP
+            case 87: // W
+                if (!pressed_up) {
+                    pressed_up = true
+                    shoot(base)
+                }
+                break
+            case 40: // DOWN
+            case 83: // S
+                if (!pressed_down) {
+                    pressed_down = true
+                    boom(base)
+                }
+                break
+        }
+    })
+    document.addEventListener('keyup', function(event) {
+        let now = new Date().getTime()
+        let base = bases[mybase]
+        switch (event.keyCode) {
+            case 37: // LEFT
+            case 65: // A
+                // Fallthrough: Same code
+            case 39: // RIGHT
+            case 68: // D
+                if (base.turn.dir) {
+                    base.turn.angle = base.turn.prv + base.turn.dir * gamecfg.turnspeed * (now - base.turn.start)
+                    if (base.turn.angle < -90) base.turn.angle = -90
+                    if (base.turn.angle >  90) base.turn.angle =  90
+                    base.turn.prv = base.turn.angle
+                    base.turn.dir = 0
+                    socket.emit('base',base)
+                }
+                break
+            case 38: // UP
+            case 87: // W
+                pressed_up = false
+                break
+            case 40: // DOWN
+            case 83: // S
+                pressed_down = false
+                break
+        }
+    })
+}
+
 window.onload = function() {
     window.onresize()
-    socket.on('start', function(gamestate) {
+    socket.on('start', function(base) {
+        bases[base.basex] = base
         let ctx = document.getElementById('canvas').getContext('2d')
-        setInterval(timer, 40, ctx, gamestate)
+        setInterval(timer, 40, ctx, base.basex)
 
-        document.addEventListener('keydown', function(event) {
-            let now = new Date().getTime()
-            switch (event.keyCode) {
-                case 37: // LEFT
-                case 65: // A
-                    if (!gamestate.turndir) {
-                        gamestate.turnstart = now
-                        gamestate.turndir = -1
-                    }
-                    break
-                case 39: // RIGHT
-                case 68: // D
-                    if (!gamestate.turndir) {
-                        gamestate.turnstart = now
-                        gamestate.turndir = 1
-                    }
-                    break
-                case 38: // UP
-                case 87: // W
-                    if (!gamestate.shooting) {
-                        gamestate.shooting = true
-                        shoot(gamestate)
-                    }
-                    break
-                case 40: // DOWN
-                case 83: // S
-                    if (!gamestate.booming) {
-                        gamestate.booming = true
-                        boom(gamestate)
-                    }
-                    break
-            }
-        })
-        document.addEventListener('keyup', function(event) {
-            let now = new Date().getTime()
-            switch (event.keyCode) {
-                case 37: // LEFT
-                case 65: // A
-                    // Fallthrough: Same code
-                case 39: // RIGHT
-                case 68: // D
-                    if (gamestate.turndir) {
-                        gamestate.angle = gamestate.prvangle + gamestate.turndir * gamecfg.turnspeed * (now - gamestate.turnstart)
-                        if (gamestate.angle < -90) gamestate.angle = -90
-                        if (gamestate.angle >  90) gamestate.angle =  90
-                        gamestate.prvangle = gamestate.angle
-                        gamestate.turndir = 0
-                    }
-                    break
-                case 38: // UP
-                case 87: // W
-                    gamestate.shooting = false
-                    break
-                case 40: // DOWN
-                case 83: // S
-                    gamestate.booming = false
-                    break
-            }
-        })
+        if (base.type == 'base') {
+            setup_base(base.basex)
+        }
     })
     socket.on('shot', function(shot) {
         if (shot.state == 'done') {
             delete shots[shot.id]
-            let i2 = 0
-            for (let i = 0; i < myshots.length; i++) {
-                if (shots[myshots[i].id]) {
-                    myshots[i2++] = myshots[i]
-                }
-            }
-            myshots.length = i2
         } else {
             shots[shot.id] = shot
+            // Check in case of reconnect
+            if ((shot.playerid == player.id) && (shot.shotid >= shotid)) shotid = shot.shotid + 1
         }
+    })
+    socket.on('base', function(base) {
+        bases[base.basex] = base
     })
 
     player.id = sessionStorage.getItem('playerid')
@@ -122,69 +132,80 @@ window.onload = function() {
     if (player.id) { socket.emit('join', player) } else { socket.emit('newplayer') }
 }
 
-function boom(gamestate)
+function boom(base)
 {
     let now = new Date().getTime()
-    for (let i = 0; i < myshots.length; i++) {
-        let s = myshots[i]
-        if (s.state == 'run') {
-            s.expos = (now - s.tick) * s.speed
-            s.state = 'boom'
-            s.tick = now-1
-            shots[s.id] = s
-            socket.emit('shoot',s)
-            return
+    let myfirstshot = null
+    for (sid in shots) {
+        let s = shots[sid]
+        if ((s.playerid == player.id) && (s.state == 'run')) {
+            if (!myfirstshot || (myfirstshot > s.id)) {
+                myfirstshot = s.id
+            }
         }
+    }
+    if (myfirstshot) {
+        let s = shots[myfirstshot]
+        s.expos = (now - s.tick) * s.speed
+        s.state = 'boom'
+        s.tick = now-1
+        shots[s.id] = s
+        socket.emit('shot',s)
     }
 }
 
-function shoot(gamestate)
+function shoot(base)
 {
-    shotcount++
-    let shotid = player.id+'-'+shotcount
-    let now = update(gamestate)
+    shotid++
+    let now = update(base)
     let shot = {
-        id: shotid,
-        angle: gamestate.angle,
+        id: player.id+'-'+shotid,
+        shotid: shotid,
+        playerid: player.id,
+        angle: base.turn.angle,
         tick: now,
         state: 'run',
         expos: 0,
         ofa: Math.random() * Math.PI * 2,
         speed: gamecfg.shotspeed,
-        startx: gamestate.basex + gamecfg.shotstart * Math.sin(gamestate.angle * Math.PI/180),
-        starty: gamestate.basey - gamecfg.shotstart * Math.cos(gamestate.angle * Math.PI/180)
+        startx: base.basex + gamecfg.shotstart * Math.sin(base.turn.angle * Math.PI/180),
+        starty: base.basey - gamecfg.shotstart * Math.cos(base.turn.angle * Math.PI/180)
     }
-    myshots.push(shot)
     shots[shot.id] = shot
-    socket.emit('shoot', shot)
+    socket.emit('shot', shot)
 }
 
-function timer(ctx, gamestate)
+function timer(ctx, mybase)
 {
-    update(gamestate)
-    animate(ctx, gamestate)
+    update(mybase)
+    animate(ctx, mybase)
 }
 
-function update(gamestate)
+function update(mybase)
 {
     let now = new Date().getTime()
-    if (gamestate.turndir) {
-          gamestate.angle = gamestate.prvangle + gamestate.turndir * gamecfg.turnspeed * (now - gamestate.turnstart)
-          if (gamestate.angle < -90) {
-              gamestate.angle = -90
-              gamestate.prvangle = -90
-              gamestate.turndir = 0
-          }
-          if (gamestate.angle >  90) {
-              gamestate.angle =  90
-              gamestate.prvangle =  90
-              gamestate.turndir = 0
-          }
+    for (b in bases) {
+        let base = bases[b]
+        if (base.turn.dir) {
+              base.turn.angle = base.turn.prv + base.turn.dir * gamecfg.turnspeed * (now - base.turn.start)
+              if (base.turn.angle < -90) {
+                  base.turn.angle = -90
+                  base.turn.prv   = -90
+                  base.turn.dir   =   0
+                  if (b == mybase) socket.emit('base',base)
+              }
+              if (base.turn.angle >  90) {
+                  base.turn.angle =  90
+                  base.turn.prv   =  90
+                  base.turn.dir   =   0
+                  if (b == mybase) socket.emit('base',base)
+              }
+        }
     }
     return now
 }
 
-function animate(ctx, gamestate)
+function animate(ctx, mybase)
 {
     let now = new Date().getTime()
     let phase = (now % gamecfg.dashspd)/gamecfg.dashspd
@@ -196,29 +217,42 @@ function animate(ctx, gamestate)
 
     ctx.translate(ctx.canvas.width/2, 0)
 
-    // Base
-    ctx.shadowBlur = 3
-    ctx.shadowColor = '#fff'
-    ctx.fillStyle = '#1a8'
-    ctx.beginPath()
-    ctx.arc(gamestate.basex, gamestate.basey+gamecfg.basesize, gamecfg.basesize, Math.PI, 0)
-    ctx.closePath()
-    ctx.fill()
+    for (b in bases) {
+        let base = bases[b]
+        // Base
+        ctx.shadowBlur = 3
+        if (!base.player) {
+            ctx.shadowColor = '#555'
+            ctx.fillStyle = '#322'
+        } else if (b == mybase) {
+            ctx.shadowColor = '#fff'
+            ctx.fillStyle = '#1c9'
+        } else {
+            ctx.shadowColor = '#aaa'
+            ctx.fillStyle = '#168'
+        }
+        ctx.beginPath()
+        ctx.arc(base.basex, base.basey+gamecfg.basesize, gamecfg.basesize, Math.PI, 0)
+        ctx.closePath()
+        ctx.fill()
 
-    // Gun
-    ctx.strokeStyle = '#1a8'
-    ctx.beginPath()
-    ctx.lineWidth = 3
-    ctx.moveTo(gamestate.basex, gamestate.basey)
-    ctx.lineTo(gamestate.basex + gamecfg.gunlen * Math.sin(gamestate.angle * Math.PI/180), gamestate.basey - gamecfg.gunlen * Math.cos(gamestate.angle * Math.PI/180))
-    ctx.stroke()
+        // Gun
+        ctx.strokeStyle = ctx.fillStyle
+        ctx.beginPath()
+        ctx.lineWidth = 3
+        ctx.moveTo(base.basex, base.basey)
+        ctx.lineTo(base.basex + gamecfg.gunlen * Math.sin(base.turn.angle * Math.PI/180), base.basey - gamecfg.gunlen * Math.cos(base.turn.angle * Math.PI/180))
+        ctx.stroke()
+    }
+
+    let base = bases[mybase]
 
     // Dashed aiming line
     ctx.beginPath()
-    ctx.strokeStyle = '#526'
+    ctx.strokeStyle = '#638'
     ctx.lineWidth = 1
     ctx.shadowBlur = 2
-    ctx.shadowColor = '#805'
+    ctx.shadowColor = '#c5a'
     let dash
     if (phase <= gamecfg.dashpart) {
         dash = [gamecfg.dashlen*phase,gamecfg.dashlen*(1-gamecfg.dashpart),gamecfg.dashlen*(gamecfg.dashpart-phase),0]
@@ -226,8 +260,8 @@ function animate(ctx, gamestate)
         dash = [0,gamecfg.dashlen*(phase-gamecfg.dashpart),gamecfg.dashlen*gamecfg.dashpart,gamecfg.dashlen*(1-phase)]
     }
     ctx.setLineDash(dash)
-    ctx.moveTo(gamestate.basex + gamecfg.gunlen * Math.sin(gamestate.angle * Math.PI/180), gamestate.basey - gamecfg.gunlen * Math.cos(gamestate.angle * Math.PI/180))
-    ctx.lineTo(gamestate.basex + 1000 * Math.sin(gamestate.angle * Math.PI/180), gamestate.basey - 1000 * Math.cos(gamestate.angle * Math.PI/180))
+    ctx.moveTo(base.basex + gamecfg.gunlen * Math.sin(base.turn.angle * Math.PI/180), base.basey - gamecfg.gunlen * Math.cos(base.turn.angle * Math.PI/180))
+    ctx.lineTo(base.basex + 1000 * Math.sin(base.turn.angle * Math.PI/180), base.basey - 1000 * Math.cos(base.turn.angle * Math.PI/180))
     ctx.stroke()
 
     ctx.setLineDash([])
@@ -240,7 +274,7 @@ function animate(ctx, gamestate)
             s.expos = 1000
             s.state = 'done'
             s.tick = now-1
-            socket.emit('shoot', s)
+            socket.emit('shot', s)
         }
         if (s.state == 'run') {
             ctx.shadowBlur = 8
@@ -296,7 +330,7 @@ function animate(ctx, gamestate)
                 ctx.fill()
                 if (bpos >= (1 + gamecfg.boomfade)) {
                     s.state = 'done'
-                    socket.emit('shoot', s)
+                    socket.emit('shot', s)
                 }
             }
         }
