@@ -25,6 +25,7 @@ let gamecfg = {
 }
 let shotid = 0
 let shots = {}
+let bombs = {}
 let bases = {}
 let pressed_up = false
 let pressed_down = false
@@ -35,6 +36,18 @@ let pressed_down = false
 window.onresize = function() {
     let canvas = document.getElementById('canvas')
     canvas.width = canvas.height * canvas.offsetWidth / canvas.offsetHeight
+}
+
+function stop_basemove(base, now, turndir)
+{
+    if (base.turn.dir && (!turndir || (turndir == base.turn.dir))) {
+        base.turn.angle = base.turn.prv + base.turn.dir * gamecfg.turnspeed * (now - base.turn.start)
+        if (base.turn.angle < -90) base.turn.angle = -90
+        if (base.turn.angle >  90) base.turn.angle =  90
+        base.turn.prv = base.turn.angle
+        base.turn.dir = 0
+        socket.emit('base',base)
+    }
 }
 
 function setup_base(mybase)
@@ -51,7 +64,8 @@ function setup_base(mybase)
                 // fallthrough
             case 39: // RIGHT
             case 68: // D
-                if (!base.turn.dir) {
+                if (base.turn.dir != turndir) {
+                    stop_basemove(base, now, 0)
                     base.turn.start = now
                     base.turn.dir = turndir
                     socket.emit('base',base)
@@ -77,20 +91,15 @@ function setup_base(mybase)
         if (!player.connected) return
         let now = new Date().getTime()
         let base = bases[mybase]
+        let turndir = 1
         switch (event.keyCode) {
             case 37: // LEFT
             case 65: // A
+                turndir = -1
                 // Fallthrough: Same code
             case 39: // RIGHT
             case 68: // D
-                if (base.turn.dir) {
-                    base.turn.angle = base.turn.prv + base.turn.dir * gamecfg.turnspeed * (now - base.turn.start)
-                    if (base.turn.angle < -90) base.turn.angle = -90
-                    if (base.turn.angle >  90) base.turn.angle =  90
-                    base.turn.prv = base.turn.angle
-                    base.turn.dir = 0
-                    socket.emit('base',base)
-                }
+                stop_basemove(base, now, turndir)
                 break
             case 38: // UP
             case 87: // W
@@ -114,23 +123,18 @@ function setup_socket(socket)
     socket.on('connect', function() {
         player.id = sessionStorage.getItem('playerid')
         player.base = sessionStorage.getItem('playerbase')
-        socket.on('newplayer', function(playerid) {
-            if (!player.id) {
-                player.id = playerid
-                sessionStorage.setItem('playerid', player.id)
-            }
-            socket.emit('join', player)
-        })
-        if (player) { socket.emit('join', player) } else { socket.emit('newplayer') }
+        socket.emit('join', player)
         document.body.className = 'connecting'
     })
     socket.on('disconnect', function() {
         player.connected = false
         document.body.className = 'disconnected'
     })
-    socket.on('start', function(base) {
+    socket.on('join', function(base) {
         bases[base.id] = base
+        player.id = base.player.id
         player.base = base.id
+        sessionStorage.setItem('playerid', player.id)
         sessionStorage.setItem('playerbase', player.base)
         player.connected = true
 
@@ -146,6 +150,13 @@ function setup_socket(socket)
             shots[shot.id] = shot
             // Check in case of reconnect
             if ((shot.playerid == player.id) && (shot.shotid >= shotid)) shotid = shot.shotid + 1
+        }
+    })
+    socket.on('bomb', function(bomb) {
+        if (bomb.state == 'done') {
+            delete bombs[bomb.id]
+        } else {
+            bombs[bomb.id] = bomb
         }
     })
     socket.on('base', function(base) {
@@ -246,12 +257,15 @@ function animate(mybase)
         let base = bases[b]
         // Base
         ctx.shadowBlur = 3
-        if (!base.player) {
-            ctx.shadowColor = '#555'
-            ctx.fillStyle = '#322'
-        } else if (b == mybase) {
+        if (b == mybase) {
             ctx.shadowColor = '#fff'
             ctx.fillStyle = '#1c9'
+        } else if (!base.player) {
+            ctx.shadowColor = '#555'
+            ctx.fillStyle = '#322'
+        } else if (base.state == 'disconnected') {
+            ctx.shadowColor = '#555'
+            ctx.fillStyle = '#611'
         } else {
             ctx.shadowColor = '#aaa'
             ctx.fillStyle = '#168'
@@ -295,9 +309,9 @@ function animate(mybase)
     for (i in shots) {
         let s = shots[i]
         let spos = (now - s.tick) * s.speed
-        if (s.state == 'run' && spos >= 1000) {
-            s.expos = 1000
-            s.state = 'done'
+        if ((s.state == 'run') && (spos >= 1500) && (s.playerid == player.id)) {
+            s.expos = 1500
+            s.state = 'boom'
             s.tick = now-1
             socket.emit('shot', s)
         }
@@ -312,6 +326,13 @@ function animate(mybase)
             ctx.moveTo(s.startx,s.starty)
             ctx.lineTo(x2,y2)
             ctx.stroke()
+
+            ctx.shadowBlur = 2 
+            ctx.shadowColor = 'rgba(255,150,130,1)'
+            ctx.fillStyle = 'rgba(200,180,160,1)'
+            ctx.beginPath()
+            ctx.arc(x2,y2,2,0,Math.PI*2)
+            ctx.fill()
         }
         if (s.state == 'boom') {
             let sfd = (now - s.tick) * gamecfg.fadespeed
@@ -325,6 +346,48 @@ function animate(mybase)
                 ctx.beginPath()
                 ctx.moveTo(s.startx,s.starty)
                 ctx.lineTo(x2,y2)
+                ctx.stroke()
+            }
+        }
+    }
+    for (i in bombs) {
+        let b = bombs[i]
+        let spos = (now - b.tick) / b.time
+        if ((b.state == 'run') && (spos > 1)) {
+            b.state = 'boom'
+            b.tick = b.tick + b.time
+        }
+        if (b.state == 'run') {
+            ctx.shadowBlur = 8
+            ctx.shadowColor = 'rgba(64,220,255,0.5)'
+            ctx.strokeStyle = 'rgba(17,102,176,1)'
+            ctx.lineWidth = 2
+            ctx.beginPath()
+            let x2 = b.startx + (b.targetx - b.startx) * spos
+            let y2 = b.starty + (b.targety - b.starty) * spos
+            ctx.moveTo(b.startx,b.starty)
+            ctx.lineTo(x2,y2)
+            ctx.stroke()
+
+            let phase = (spos/40) % 2
+            if (phase > 1) phase = 2-phase
+            ctx.shadowBlur = 2 
+            ctx.shadowColor = 'rgba(255,150,130,1)'
+            ctx.fillStyle = 'rgba(200,50,0,'+phase+')'
+            ctx.beginPath()
+            ctx.arc(x2,y2,2,0,Math.PI*2)
+            ctx.fill()
+        }
+        if (b.state == 'boom') {
+            let sfd = (now - b.tick) * gamecfg.fadespeed
+            if (sfd < 1) {
+                ctx.shadowBlur = 8
+                ctx.shadowColor = 'rgba(64,220,255,'+(0.5 * (1.0-sfd))+')'
+                ctx.strokeStyle = 'rgba(17,102,176,'+(1.0-sfd)+')'
+                ctx.lineWidth = 2
+                ctx.beginPath()
+                ctx.moveTo(b.startx,b.starty)
+                ctx.lineTo(b.targetx,b.targety)
                 ctx.stroke()
             }
         }
@@ -355,9 +418,41 @@ function animate(mybase)
                 ctx.fill()
                 if (bpos >= (1 + gamecfg.boomfade)) {
                     s.state = 'done'
-                    socket.emit('shot', s)
+                    // socket.emit('shot', s)
+                    delete shots[s.id]
                 }
             }
         }
     }
+
+    for (i in bombs) {
+        let b = bombs[i]
+        if (b.state == 'boom') {
+            let bpos = (now - b.tick) / b.boomtime
+            let bsz = Math.sqrt(bpos) * b.boomsize
+            ctx.beginPath()
+            ctx.arc(b.targetx, b.targety, bsz, 0, Math.PI*2)
+            ctx.fillStyle = '#f77'
+            ctx.shadowBlur = 8
+            ctx.shadowColor = 'rgba(64,220,255,0.5)'
+            ctx.fill()
+            if (bpos >= 1) {
+                bpos = (now - b.tick - b.boomtime) / b.fadetime
+                let fsz = bpos * b.boomsize * 1.2
+                let x3 = b.targetx + Math.sin(b.ofa)*((b.boomsize*1.5)-fsz)/2
+                let y3 = b.targety - Math.cos(b.ofa)*((b.boomsize*1.5)-fsz)/2
+                ctx.beginPath()
+                ctx.arc(x3, y3, fsz, 0, Math.PI*2)
+                ctx.fillStyle = 'rgba(0,17,34,1)'
+                ctx.shadowBlur = 10
+                ctx.shadowColor = 'rgba(0,17,34,1)'
+                ctx.fill()
+                if (bpos >= 1) {
+                    b.state = 'done'
+                    delete bombs[b.id]
+                }
+            }
+        }
+    }
+
 }
