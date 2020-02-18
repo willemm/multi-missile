@@ -20,8 +20,8 @@ let gamecfg = {
     fadespeed: 1 / 1000,
 
     boomsize: 50,
-    boomspeed: 1 / 2000,
-    boomfade: 0.3
+    boomtime: 2000,
+    boomfadetime: 600
 }
 let shotid = 0
 let shots = {}
@@ -178,13 +178,19 @@ function boom(base)
         }
     }
     if (myfirstshot) {
-        let s = shots[myfirstshot]
-        s.expos = (now - s.tick) * s.speed
-        s.state = 'boom'
-        s.tick = now-1
-        shots[s.id] = s
-        socket.emit('shot',s)
+        boomshot(shots[myfirstshot], 0, now)
     }
+}
+
+function boomshot(shot, expos, now)
+{
+    if (!expos) expos = (now - shot.tick) * shot.speed
+    shot.boomx = shot.startx + expos * Math.sin(shot.angle * Math.PI/180)
+    shot.boomy = shot.starty - expos * Math.cos(shot.angle * Math.PI/180)
+    shot.state = 'boom'
+    shot.tick = now
+    shots[shot.id] = shot
+    socket.emit('shot',shot)
 }
 
 function shoot(base)
@@ -198,9 +204,11 @@ function shoot(base)
         angle: base.turn.angle,
         tick: now,
         state: 'run',
-        expos: 0,
         ofa: Math.random() * Math.PI * 2,
         speed: gamecfg.shotspeed,
+        boomsize: gamecfg.boomsize,
+        boomtime: gamecfg.boomtime,
+        fadetime: gamecfg.boomfadetime,
         startx: base.basex + gamecfg.shotstart * Math.sin(base.turn.angle * Math.PI/180),
         starty: base.basey - gamecfg.shotstart * Math.cos(base.turn.angle * Math.PI/180)
     }
@@ -310,10 +318,7 @@ function animate(mybase)
         let s = shots[i]
         let spos = (now - s.tick) * s.speed
         if ((s.state == 'run') && (spos >= 1500) && (s.playerid == player.id)) {
-            s.expos = 1500
-            s.state = 'boom'
-            s.tick = now-1
-            socket.emit('shot', s)
+            boomshot(s, 1500, now)
         }
         if (s.state == 'run') {
             ctx.shadowBlur = 8
@@ -336,8 +341,6 @@ function animate(mybase)
         }
         if (s.state == 'boom') {
             let sfd = (now - s.tick) * gamecfg.fadespeed
-            let x2 = s.startx + s.expos * Math.sin(s.angle * Math.PI/180)
-            let y2 = s.starty - s.expos * Math.cos(s.angle * Math.PI/180)
             if (sfd < 1) {
                 ctx.shadowBlur = 8
                 ctx.shadowColor = 'rgba(64,220,255,'+0.5*(1.0-sfd)+')'
@@ -345,7 +348,7 @@ function animate(mybase)
                 ctx.lineWidth = 2
                 ctx.beginPath()
                 ctx.moveTo(s.startx,s.starty)
-                ctx.lineTo(x2,y2)
+                ctx.lineTo(s.boomx,s.boomy)
                 ctx.stroke()
             }
         }
@@ -398,27 +401,25 @@ function animate(mybase)
     for (i in shots) {
         let s = shots[i]
         if (s.state == 'boom') {
-            let x2 = s.startx + s.expos * Math.sin(s.angle * Math.PI/180)
-            let y2 = s.starty - s.expos * Math.cos(s.angle * Math.PI/180)
-            let bpos = (now - s.tick) * gamecfg.boomspeed
-            let bsz = Math.sqrt(bpos) * gamecfg.boomsize
+            let bpos = (now - s.tick) / s.boomtime
+            let bsz = Math.sqrt(bpos) * s.boomsize
             ctx.beginPath()
-            ctx.arc(x2, y2, bsz, 0, Math.PI*2)
+            ctx.arc(s.boomx, s.boomy, bsz, 0, Math.PI*2)
             ctx.fillStyle = '#de8'
             ctx.shadowBlur = 8
             ctx.shadowColor = 'rgba(64,220,255,0.5)'
             ctx.fill()
             if (bpos >= 1) {
-                let fsz = ((bpos-1) / gamecfg.boomfade) * gamecfg.boomsize * 1.2
-                let x3 = x2 + Math.sin(s.ofa)*((gamecfg.boomsize*1.5)-fsz)/2
-                let y3 = y2 - Math.cos(s.ofa)*((gamecfg.boomsize*1.5)-fsz)/2
+                let fsz = ((now - s.tick - s.boomtime) / s.fadetime) * s.boomsize * 1.2
+                let xo = s.boomx + Math.sin(s.ofa)*((s.boomsize*1.5)-fsz)/2
+                let yo = s.boomy - Math.cos(s.ofa)*((s.boomsize*1.5)-fsz)/2
                 ctx.beginPath()
-                ctx.arc(x3, y3, fsz, 0, Math.PI*2)
+                ctx.arc(xo, yo, fsz, 0, Math.PI*2)
                 ctx.fillStyle = 'rgba(0,17,34,1)'
                 ctx.shadowBlur = 10
                 ctx.shadowColor = 'rgba(0,17,34,1)'
                 ctx.fill()
-                if (bpos >= (1 + gamecfg.boomfade)) {
+                if (fsz >= 1) {
                     s.state = 'done'
                     // socket.emit('shot', s)
                     delete shots[s.id]
@@ -442,10 +443,10 @@ function animate(mybase)
                 if (bpos >= 1) {
                     bpos = (now - b.tick - b.boomtime) / b.fadetime
                     let fsz = bpos * b.boomsize * 1.2
-                    let x3 = b.targetx + Math.sin(b.ofa)*((b.boomsize*1.5)-fsz)/2
-                    let y3 = b.targety - Math.cos(b.ofa)*((b.boomsize*1.5)-fsz)/2
+                    let xo = b.targetx + Math.sin(b.ofa)*((b.boomsize*1.5)-fsz)/2
+                    let yo = b.targety - Math.cos(b.ofa)*((b.boomsize*1.5)-fsz)/2
                     ctx.beginPath()
-                    ctx.arc(x3, y3, fsz, 0, Math.PI*2)
+                    ctx.arc(xo, yo, fsz, 0, Math.PI*2)
                     ctx.fillStyle = 'rgba(0,17,34,1)'
                     ctx.shadowBlur = 10
                     ctx.shadowColor = 'rgba(0,17,34,1)'
