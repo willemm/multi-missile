@@ -169,6 +169,7 @@ function intercept(shot)
                 bomb.targetx = bomb.startx + (bomb.targetx-bomb.startx) * (itim/bomb.time)
                 bomb.targety = bomb.starty + (bomb.targety-bomb.starty) * (itim/bomb.time)
                 bomb.time = itim
+                bomb.target = 'sky'
                 console.log('Shot intersects bomb at ('+Math.round(bomb.targetx)+','+Math.round(bomb.targety)+','+Math.round(bomb.time)+')')
                 io.emit('bomb',bomb)
             }
@@ -186,6 +187,7 @@ function attack()
         , starty: 0
         , targetx: Math.random() * 1600 - 800
         , targety: Math.random() * 50 + 800
+        , target: 'ground'
         , ofa: Math.PI * 2 * Math.random()
         , tick: new Date().getTime() + 1000
         , boomtime: 500
