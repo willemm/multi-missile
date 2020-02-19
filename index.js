@@ -140,30 +140,36 @@ function intercept(shot)
         // So: x = t*dx/dt and y = t*dy/dt
         let dxt = (bomb.targetx-bomb.startx)/bomb.time
         let dyt = (bomb.targety-bomb.starty)/bomb.time
-        // Shot (root) cone: point at (xc,yc), radius at sqrt((t-t0) / bomb.boomtime)
-        // Function: (x*x + y*y = (t-t0)/bt)
-        // Translate-1: ((x-xc)*(x-xc) + (y-yc)*(y-yc)) = (t - bomb.tick)/boomtime
-        // Translate-2: ((x-xc-x1)*(x-xc-x1) + (y-yc-y1)*(y-yc-y1)) = (t - bomb.tick - shot.tick)/boomtime
+        // Shot (root) cone: point at (xc,yc,t0), radius is sqrt((t-t0)/boomtime)*boomsize
+        // Function: (x*x + y*y = (t-t0)*boomsize/bt)
+        // Translate-1: ((x-xc)*(x-xc) + (y-yc)*(y-yc)) = (t - bomb.tick)*boomsize*boomsize/boomtime
+        // Translate-2: ((x-xc-x1)*(x-xc-x1) + (y-yc-y1)*(y-yc-y1)) = ((t - bomb.tick - shot.tick)*boomsize*boomsize)/boomtime
 
         // Equations:
-        // (t*dxt-xc)^2 + (t*dyt-yc)^2 = t-tc
-        // dxt^2 * t^2 - 2*xc*dxt * t + xc^2 + dyt^2 * t^2 - 2*yc*dyt * t + yc^2 - t + tc = 0
-        // (dxt^2 + dyt^2) * t^2 + (-2*xc*dxt -2*yc*dyt -1) * t + (xc^2 + yc^2 + tc) = 0
+        // (t*dxt-xc)^2 + (t*dyt-yc)^2 = (t-tc)*(boomsize/boomtime)
+        // dxt^2 * t^2 - 2*xc*dxt * t + xc^2 + dyt^2 * t^2 - 2*yc*dyt * t + yc^2 - (t + tc)*(bs/bt) = 0
+        // (dxt^2 + dyt^2) * t^2 + (-2*xc*dxt -2*yc*dyt -(bs/bt)) * t + (xc^2 + yc^2 + tc*bs/bt) = 0
+        let bst = (shot.boomsize*shot.boomsize)/shot.boomtime
         let xc = shot.boomx - bomb.startx
         let yc = shot.boomy - bomb.starty
         let fa = dxt*dxt + dyt*dyt
-        let fb = -2*xc*dxt -2*yc*dyt -1
-        let fc = xc*xc + yc*yc + shot.tick
+        let fb = -2*xc*dxt -2*yc*dyt -bst
+        let fc = xc*xc + yc*yc + (shot.tick-bomb.tick)*bst
         // abc formula (smallest, because first in time)
         // (-b - sqrt(b*b - 4*a*c)) / 2a
         let det = fb*fb - 4*fa*fc
-        console.log('Intersect boom ('+shot.boomx+','+shot.boomy+','+shot.tick+') and bomb ('+bomb.startx+','+bomb.starty+','+bomb.tick+' - '+bomb.targetx+','+bomb.targety+','+bomb.time+') det = '+det)
+        // console.log('Intersect boom ('+Math.round(shot.boomx)+','+Math.round(shot.boomy)+','+Math.round(shot.tick-bomb.tick)+') and bomb ('+Math.round(bomb.startx)+','+Math.round(bomb.starty)+',0 - '+Math.round(bomb.targetx)+','+Math.round(bomb.targety)+','+Math.round(bomb.time)+') fa = '+fa+' fb = '+Math.round(fb)+' fc = '+Math.round(fc)+' det = '+Math.round(det))
+        // console.log('Bomb at boom: ('+Math.round(bomb.startx+(bomb.targetx-bomb.startx) * ((shot.tick-bomb.tick)/bomb.time))+','+Math.round(bomb.starty+(bomb.targety-bomb.starty) * ((shot.tick-bomb.tick)/bomb.time))+')')
         if (det >= 0) {
             let itim = (-fb - Math.sqrt(det))/(2*fa)
-            console.log('itim = '+itim)
-            if (itim < (shot.boomtime+shot.fadetime)) {
-                bomb.targetx = bomb.startx + (bomb.targetx-bomb.startx) * (bomb.time/itim)
-                bomb.targety = bomb.starty + (bomb.targety-bomb.starty) * (bomb.time/itim)
+            let btim = itim-shot.tick+bomb.tick
+            // console.log('itim = '+Math.round(itim))
+            // console.log('btim = '+Math.round(btim))
+            if ((btim >= 0) && (btim < (shot.boomtime+shot.fadetime)) && (itim < bomb.time)) {
+                bomb.targetx = bomb.startx + (bomb.targetx-bomb.startx) * (itim/bomb.time)
+                bomb.targety = bomb.starty + (bomb.targety-bomb.starty) * (itim/bomb.time)
+                bomb.time = itim
+                console.log('Shot intersects bomb at ('+Math.round(bomb.targetx)+','+Math.round(bomb.targety)+','+Math.round(bomb.time)+')')
                 io.emit('bomb',bomb)
             }
         }
