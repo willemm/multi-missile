@@ -59,6 +59,7 @@ let lastplayerid = 0
 let bombid = new Date().getTime()
 
 setTimeout(attack, 1000)
+setInterval(() => io.emit('now', new Date().getTime()), 30000)
 
 io.on('connection', function(socket) {
     console.log('Connection from '+socket.conn.remoteAddress+' id='+socket.id)
@@ -127,6 +128,7 @@ io.on('connection', function(socket) {
             console.log('Disconnect, no player')
         }
     })
+    socket.emit('now', new Date().getTime())
 })
 
 // Check of dit schot een van de bommen gaat raken

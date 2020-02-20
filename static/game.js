@@ -9,6 +9,7 @@ let player = {
     connected: false
 }
 let gamecfg = {
+    drift: 10,
     basesize: 25,
     turnspeed: 90 / 5000,
     dashspd: 500,
@@ -29,6 +30,8 @@ let bombs = {}
 let bases = {}
 let pressed_up = false
 let pressed_down = false
+let timedrift = null
+let newtimedrift = null
 
 // let tmr
 // let ctx
@@ -54,7 +57,7 @@ function setup_base(mybase)
 {
     document.addEventListener('keydown', function(event) {
         if (!player.connected) return
-        let now = new Date().getTime()
+        let now = new Date().getTime() + timedrift
         let turndir = 1
         let base = bases[mybase]
         switch (event.keyCode) {
@@ -89,7 +92,7 @@ function setup_base(mybase)
     })
     document.addEventListener('keyup', function(event) {
         if (!player.connected) return
-        let now = new Date().getTime()
+        let now = new Date().getTime() + timedrift
         let base = bases[mybase]
         let turndir = 1
         switch (event.keyCode) {
@@ -162,12 +165,14 @@ function setup_socket(socket)
     socket.on('base', function(base) {
         bases[base.id] = base
     })
-
+    socket.on('now', function(now) {
+        newtimedrift = (now - (new Date().getTime()))
+    })
 }
 
 function boom(base)
 {
-    let now = new Date().getTime()
+    let now = new Date().getTime() + timedrift
     let myfirstshot = null
     for (sid in shots) {
         let s = shots[sid]
@@ -218,6 +223,15 @@ function shoot(base)
 
 function timer(ctx, mybase)
 {
+    if (timedrift != newtimedrift) {
+        if ((timedrift === null) || (Math.abs(timedrift - newtimedrift) <= gamecfg.drift)) {
+            timedrift = newtimedrift
+        } else if (timedrift > newtimedrift) {
+            timedrift -= gamecfg.drift
+        } else {
+            timedrift += gamecfg.drift
+        }
+    }
     if (player.connected) {
         update(player.base)
         animate(player.base)
@@ -226,7 +240,7 @@ function timer(ctx, mybase)
 
 function update(mybase)
 {
-    let now = new Date().getTime()
+    let now = new Date().getTime() + timedrift
     for (b in bases) {
         let base = bases[b]
         if (base.turn.dir) {
@@ -251,7 +265,7 @@ function update(mybase)
 function animate(mybase)
 {
     let ctx = document.getElementById('canvas').getContext('2d')
-    let now = new Date().getTime()
+    let now = new Date().getTime() + timedrift
     let phase = (now % gamecfg.dashspd)/gamecfg.dashspd
 
     // Start
