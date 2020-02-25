@@ -52,8 +52,25 @@ function find_slot(player, socketid)
 let lastplayerid = 0
 let bombid = new Date().getTime()
 
+function formatBytes(bytes, decimals = 2) {
+    if (bytes === 0) return '0 Bytes';
+
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+}
+
 setTimeout(attack, 1000)
-setInterval(() => io.emit('now', new Date().getTime()), 30000)
+setInterval(() => {
+    io.emit('now', new Date().getTime())
+    let mu = process.memoryUsage()
+    console.log('Memory: rss='+formatBytes(mu.rss)+' tot='+formatBytes(mu.heapTotal)+' used='+formatBytes(mu.heapUsed)+' ext='+formatBytes(mu.external))
+    console.log('Current shot number: '+Object.keys(shots).length+' bomb number: '+Object.keys(bombs).length)
+}, 30000)
 
 io.on('connection', function(socket) {
     console.log('Connection from '+socket.conn.remoteAddress+' id='+socket.id)
@@ -146,15 +163,15 @@ function intercept(shot)
         // dxt^2 * t^2 - 2*xc*dxt * t + xc^2 + dyt^2 * t^2 - 2*yc*dyt * t + yc^2 - (t + tc)*(bs/bt) = 0
         // (dxt^2 + dyt^2) * t^2 + (-2*xc*dxt -2*yc*dyt -(bs/bt)) * t + (xc^2 + yc^2 + tc*bs/bt) = 0
         let bst = (shot.boomsize*shot.boomsize)/shot.boomtime
-        let xc = shot.boomx - bomb.startx
-        let yc = shot.boomy - bomb.starty
+        let xc = shot.targetx - bomb.startx
+        let yc = shot.targety - bomb.starty
         let fa = dxt*dxt + dyt*dyt
         let fb = -2*xc*dxt -2*yc*dyt -bst
         let fc = xc*xc + yc*yc + (shot.tick-bomb.tick)*bst
         // abc formula (smallest, because first in time)
         // (-b - sqrt(b*b - 4*a*c)) / 2a
         let det = fb*fb - 4*fa*fc
-        // console.log('Intersect boom ('+Math.round(shot.boomx)+','+Math.round(shot.boomy)+','+Math.round(shot.tick-bomb.tick)+') and bomb ('+Math.round(bomb.startx)+','+Math.round(bomb.starty)+',0 - '+Math.round(bomb.targetx)+','+Math.round(bomb.targety)+','+Math.round(bomb.time)+') fa = '+fa+' fb = '+Math.round(fb)+' fc = '+Math.round(fc)+' det = '+Math.round(det))
+        // console.log('Intersect boom ('+Math.round(shot.targetx)+','+Math.round(shot.targety)+','+Math.round(shot.tick-bomb.tick)+') and bomb ('+Math.round(bomb.startx)+','+Math.round(bomb.starty)+',0 - '+Math.round(bomb.targetx)+','+Math.round(bomb.targety)+','+Math.round(bomb.time)+') fa = '+fa+' fb = '+Math.round(fb)+' fc = '+Math.round(fc)+' det = '+Math.round(det))
         // console.log('Bomb at boom: ('+Math.round(bomb.startx+(bomb.targetx-bomb.startx) * ((shot.tick-bomb.tick)/bomb.time))+','+Math.round(bomb.starty+(bomb.targety-bomb.starty) * ((shot.tick-bomb.tick)/bomb.time))+')')
         if (det >= 0) {
             let itim = (-fb - Math.sqrt(det))/(2*fa)
@@ -175,6 +192,17 @@ function intercept(shot)
 
 function attack()
 {
+    let now = new Date().getTime()
+    for (b in bombs) {
+        if (bombs[b].tick + bombs[b].time + bombs[b].boomtime + bombs[b].fadetime < now) {
+            delete bombs[b]
+        }
+    }
+    for (s in shots) {
+        if (shots[s].tick + shots[s].time + shots[s].boomtime + shots[s].fadetime < now) {
+            delete shots[s]
+        }
+    }
     if (bases.find(b => (b.player) && (b.state == 'connected'))) {
         bombid++
         let bomb =
@@ -196,26 +224,6 @@ function attack()
         bomb.time = (Math.sqrt(dx*dx+dy*dy) / 600) * (Math.random() * 3000 + 10000)
         bombs[bomb.id] = bomb
         io.emit('bomb',bomb)
-        setTimeout(explode, bomb.time+1000, bomb.id)
     }
     setTimeout(attack, Math.random() * 5000+5000)
-}
-
-function explode(bombid)
-{
-    let bomb = bombs[bombid]
-    if (bomb) {
-        bomb.state = 'boom'
-        // io.emit('bomb', bomb)
-        setTimeout(bombdone, 1000, bombid)
-    }
-}
-
-function bombdone(bombid)
-{
-    let bomb = delete bombs[bombid]
-    if (bomb) {
-        bomb.state = 'done'
-        io.emit('bomb', bomb)
-    }
 }

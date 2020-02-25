@@ -11,20 +11,22 @@ let player = {
 let gamecfg = {
     drift: 10,
     basesize: 25,
+    baseoffset: 20,
     turnspeed: 90 / 5000,
     dashspd: 500,
     gunlen: 20,
     shotstart: 22,
+    shotend: 2000,
     dashlen: 10,
     dashpart: 0.2,
     shotspeed: 120 / 1000,
     fadespeed: 1 / 1000,
 
-    boomsize: 50,
+    boomsize: 80,
     boomtime: 2000,
     boomfadetime: 600
 }
-let shotid = 0
+let shotid = 1
 let shots = {}
 let bombs = {}
 let bases = {}
@@ -183,40 +185,40 @@ function boom(base)
         }
     }
     if (myfirstshot) {
-        boomshot(shots[player.id+'-'+myfirstshot], 0, now)
+        boomshot(shots[player.id+'-'+myfirstshot.toString(36)], now)
     }
 }
 
-function boomshot(shot, expos, now)
+function boomshot(shot, now)
 {
-    if (!expos) expos = (now - shot.tick) * shot.speed
-    shot.boomx = shot.startx + expos * Math.sin(shot.angle * Math.PI/180)
-    shot.boomy = shot.starty - expos * Math.cos(shot.angle * Math.PI/180)
-    shot.state = 'boom'
+    shot.targetx = shot.startx + (shot.targetx-shot.startx) * ((now-shot.tick) / shot.time)
+    shot.targety = shot.starty + (shot.targety-shot.starty) * ((now-shot.tick) / shot.time)
     shot.tick = now
+    shot.state = 'boom'
     shots[shot.id] = shot
     socket.emit('shot',shot)
 }
 
 function shoot(base)
 {
-    shotid++
     let now = update(base)
     let shot = {
-        id: player.id+'-'+shotid,
+        id: player.id+'-'+shotid.toString(36),
         shotid: shotid,
         playerid: player.id,
-        angle: base.turn.angle,
         tick: now,
         state: 'run',
         ofa: Math.random() * Math.PI * 2,
-        speed: gamecfg.shotspeed,
         boomsize: gamecfg.boomsize,
         boomtime: gamecfg.boomtime,
         fadetime: gamecfg.boomfadetime,
         startx: base.basex + gamecfg.shotstart * Math.sin(base.turn.angle * Math.PI/180),
-        starty: base.basey - gamecfg.shotstart * Math.cos(base.turn.angle * Math.PI/180)
+        starty: base.basey - gamecfg.shotstart * Math.cos(base.turn.angle * Math.PI/180),
+        targetx: base.basex + gamecfg.shotend * Math.sin(base.turn.angle * Math.PI/180),
+        targety: base.basey - gamecfg.shotend * Math.cos(base.turn.angle * Math.PI/180),
+        time: (gamecfg.shotend-gamecfg.shotstart)/gamecfg.shotspeed
     }
+    shotid++
     shots[shot.id] = shot
     socket.emit('shot', shot)
 }
@@ -293,7 +295,7 @@ function animate(mybase)
             ctx.fillStyle = '#168'
         }
         ctx.beginPath()
-        ctx.arc(base.basex, base.basey+gamecfg.basesize, gamecfg.basesize, Math.PI, 0)
+        ctx.arc(base.basex, base.basey+gamecfg.baseoffset, gamecfg.basesize, Math.PI, 0)
         ctx.closePath()
         ctx.stroke()
         ctx.fill()
@@ -332,14 +334,15 @@ function animate(mybase)
     // Shots
     for (i in shots) {
         let s = shots[i]
-        let spos = (now - s.tick) * s.speed
-        if ((s.state == 'run') && (spos >= 1500) && (s.playerid == player.id)) {
-            boomshot(s, 1500, now)
+        let spos = (now - s.tick) / s.time
+        if ((s.state == 'run') && (spos > 1)) {
+            s.state = 'boom'
+            s.tick = s.tick + s.time
         }
         if (s.state == 'run') {
             ctx.beginPath()
-            let x2 = s.startx + spos * Math.sin(s.angle * Math.PI/180)
-            let y2 = s.starty - spos * Math.cos(s.angle * Math.PI/180)
+            let x2 = s.startx + (s.targetx-s.startx) * ((now-s.tick) / s.time)
+            let y2 = s.starty + (s.targety-s.starty) * ((now-s.tick) / s.time)
             ctx.moveTo(s.startx,s.starty)
             ctx.lineTo(x2,y2)
             ctx.strokeStyle = 'rgba(64,220,255,0.5)'
@@ -362,7 +365,7 @@ function animate(mybase)
             if (sfd < 1) {
                 ctx.beginPath()
                 ctx.moveTo(s.startx,s.starty)
-                ctx.lineTo(s.boomx,s.boomy)
+                ctx.lineTo(s.targetx,s.targety)
                 ctx.strokeStyle = 'rgba(64,220,255,'+0.5*(1.0-sfd)+')'
                 ctx.lineWidth = 4
                 ctx.stroke()
@@ -422,32 +425,33 @@ function animate(mybase)
     // Explosions (all drawn after shots)
     for (i in shots) {
         let s = shots[i]
-        if (s.state == 'boom') {
-            let bpos = (now - s.tick) / s.boomtime
-            let bsz = Math.sqrt(bpos) * s.boomsize
-            ctx.beginPath()
-            ctx.arc(s.boomx, s.boomy, bsz, 0, Math.PI*2)
-            ctx.fillStyle = '#de8'
-            ctx.strokeStyle = 'rgba(64,220,255,0.5)'
-            ctx.lineWidth = 2
-            ctx.stroke()
-            ctx.fill()
-            if (bpos >= 1) {
-                let fpos = ((now - s.tick - s.boomtime) / s.fadetime)
-                let fsz = fpos * s.boomsize * 1.2
-                let xo = s.boomx + Math.sin(s.ofa)*((s.boomsize*1.5)-fsz)/2
-                let yo = s.boomy - Math.cos(s.ofa)*((s.boomsize*1.5)-fsz)/2
+        if (s.tick <= now) {
+            if (s.state == 'boom') {
+                let bpos = (now - s.tick) / s.boomtime
+                let bsz = Math.sqrt(bpos) * s.boomsize
                 ctx.beginPath()
-                ctx.arc(xo, yo, fsz, 0, Math.PI*2)
-                ctx.fillStyle = 'rgba(0,17,34,1)'
-                ctx.strokeStyle = 'rgba(0,17,34,1)'
+                ctx.arc(s.targetx, s.targety, bsz, 0, Math.PI*2)
+                ctx.fillStyle = '#de8'
+                ctx.strokeStyle = 'rgba(64,220,255,0.5)'
                 ctx.lineWidth = 2
                 ctx.stroke()
                 ctx.fill()
-                if (fpos >= 1) {
-                    s.state = 'done'
-                    // socket.emit('shot', s)
-                    delete shots[s.id]
+                if (bpos >= 1) {
+                    let fpos = ((now - s.tick - s.boomtime) / s.fadetime)
+                    let fsz = fpos * s.boomsize * 1.2
+                    let xo = s.targetx + Math.sin(s.ofa)*((s.boomsize*1.5)-fsz)/2
+                    let yo = s.targety - Math.cos(s.ofa)*((s.boomsize*1.5)-fsz)/2
+                    ctx.beginPath()
+                    ctx.arc(xo, yo, fsz, 0, Math.PI*2)
+                    ctx.fillStyle = 'rgba(0,17,34,1)'
+                    ctx.strokeStyle = 'rgba(0,17,34,1)'
+                    ctx.lineWidth = 2
+                    ctx.stroke()
+                    ctx.fill()
+                    if (fpos >= 1) {
+                        s.state = 'done'
+                        delete shots[s.id]
+                    }
                 }
             }
         }
