@@ -28,7 +28,6 @@ let gamecfg = {
 }
 let shotid = 1
 let shots = {}
-let bombs = {}
 let bases = {}
 let pressed_up = false
 let pressed_down = false
@@ -157,13 +156,6 @@ function setup_socket(socket)
             if ((shot.playerid == player.id) && (shot.shotid >= shotid)) shotid = shot.shotid + 1
         }
     })
-    socket.on('bomb', function(bomb) {
-        if (bomb.state == 'done') {
-            delete bombs[bomb.id]
-        } else {
-            bombs[bomb.id] = bomb
-        }
-    })
     socket.on('base', function(base) {
         bases[base.id] = base
     })
@@ -176,7 +168,7 @@ function boom(base)
 {
     let now = new Date().getTime() + timedrift
     let myfirstshot = null
-    for (sid in shots) {
+    for (let sid in shots) {
         let s = shots[sid]
         if ((s.playerid == player.id) && (s.state == 'run')) {
             if (!myfirstshot || (myfirstshot > s.shotid)) {
@@ -202,21 +194,31 @@ function boomshot(shot, now)
 function shoot(base)
 {
     let now = update(base)
-    let shot = {
-        id: player.id+'-'+shotid.toString(36),
-        shotid: shotid,
-        playerid: player.id,
-        tick: now,
-        state: 'run',
-        ofa: Math.random() * Math.PI * 2,
-        boomsize: gamecfg.boomsize,
-        boomtime: gamecfg.boomtime,
-        fadetime: gamecfg.boomfadetime,
-        startx: base.basex + gamecfg.shotstart * Math.sin(base.turn.angle * Math.PI/180),
-        starty: base.basey - gamecfg.shotstart * Math.cos(base.turn.angle * Math.PI/180),
-        targetx: base.basex + gamecfg.shotend * Math.sin(base.turn.angle * Math.PI/180),
-        targety: base.basey - gamecfg.shotend * Math.cos(base.turn.angle * Math.PI/180),
-        time: (gamecfg.shotend-gamecfg.shotstart)/gamecfg.shotspeed
+    let shot =
+    { id: player.id+'-'+shotid.toString(36)
+    , shotid: shotid
+    , playerid: player.id
+    , tick: now
+    , state: 'run'
+    , ofa: Math.random() * Math.PI * 2
+    , boomsize: gamecfg.boomsize
+    , boomtime: gamecfg.boomtime
+    , fadetime: gamecfg.boomfadetime
+    , startx: base.basex + gamecfg.shotstart * Math.sin(base.turn.angle * Math.PI/180)
+    , starty: base.basey - gamecfg.shotstart * Math.cos(base.turn.angle * Math.PI/180)
+    , targetx: base.basex + gamecfg.shotend * Math.sin(base.turn.angle * Math.PI/180)
+    , targety: base.basey - gamecfg.shotend * Math.cos(base.turn.angle * Math.PI/180)
+    , time: (gamecfg.shotend-gamecfg.shotstart)/gamecfg.shotspeed
+    , flashSpeed: 100
+    , strokeStyle: 'rgba(255,150,130,1)'
+    , fillStyle: 'rgba(200,180,160,1)'
+    , pixSize: 2
+    , lineMin: 1
+    , lineMax: 1
+    , boomStroke: 'rgba(64,220,255,0.5)'
+    , boomFill: '#de8'
+    , boomLine: 2
+    , zIndex: 1
     }
     shotid++
     shots[shot.id] = shot
@@ -243,7 +245,7 @@ function timer(ctx, mybase)
 function update(mybase)
 {
     let now = new Date().getTime() + timedrift
-    for (b in bases) {
+    for (let b in bases) {
         let base = bases[b]
         if (base.turn.dir) {
               base.turn.angle = base.turn.prv + base.turn.dir * gamecfg.turnspeed * (now - base.turn.start)
@@ -277,7 +279,7 @@ function animate(mybase)
 
     ctx.translate(ctx.canvas.width/2, 0)
 
-    for (b in bases) {
+    for (let b in bases) {
         let base = bases[b]
         // Base
         ctx.lineWidth = 1
@@ -332,7 +334,7 @@ function animate(mybase)
     ctx.setLineDash([])
 
     // Shots
-    for (i in shots) {
+    for (let i in shots) {
         let s = shots[i]
         let spos = (now - s.tick) / s.time
         if ((s.state == 'run') && (spos > 1)) {
@@ -352,11 +354,14 @@ function animate(mybase)
             ctx.lineWidth = 2
             ctx.stroke()
 
+            let phase = (spos*100) % 2
+            if (phase > 1) phase = 2-phase
+            ctx.lineWidth = s.lineMin + (s.lineMax-s.lineMin)*phase
+            ctx.strokeStyle = s.strokeStyle.replace('phase',phase)
+            ctx.fillStyle = s.fillStyle.replace('phase',phase)
+
             ctx.beginPath()
-            ctx.arc(x2,y2,2,0,Math.PI*2)
-            ctx.strokeStyle = 'rgba(255,150,130,1)'
-            ctx.fillStyle = 'rgba(200,180,160,1)'
-            ctx.lineWidth = 1
+            ctx.arc(x2,y2,s.pixSize,0,Math.PI*2)
             ctx.stroke()
             ctx.fill()
         }
@@ -375,65 +380,24 @@ function animate(mybase)
             }
         }
     }
-    for (i in bombs) {
-        let b = bombs[i]
-        let spos = (now - b.tick) / b.time
-        if (spos >= 0) {
-            if ((b.state == 'run') && (spos > 1)) {
-                b.state = 'boom'
-                b.tick = b.tick + b.time
-            }
-            if (b.state == 'run') {
-                ctx.beginPath()
-                let x2 = b.startx + (b.targetx - b.startx) * spos
-                let y2 = b.starty + (b.targety - b.starty) * spos
-                ctx.moveTo(b.startx,b.starty)
-                ctx.lineTo(x2,y2)
-                ctx.strokeStyle = 'rgba(64,220,255,0.5)'
-                ctx.lineWidth = 4
-                ctx.stroke()
-                ctx.strokeStyle = 'rgba(17,102,176,1)'
-                ctx.lineWidth = 2
-                ctx.stroke()
-
-                let phase = (spos*100) % 2
-                if (phase > 1) phase = 2-phase
-                ctx.lineWidth = 4*phase
-                ctx.strokeStyle = 'rgba(255,100,80,'+phase+')'
-                ctx.fillStyle = 'rgba(200,150,100,1)'
-                ctx.beginPath()
-                ctx.arc(x2,y2,1.5,0,Math.PI*2)
-                ctx.stroke()
-                ctx.fill()
-            }
-            if (b.state == 'boom') {
-                let sfd = (now - b.tick) * gamecfg.fadespeed
-                if (sfd < 1) {
-                    ctx.beginPath()
-                    ctx.moveTo(b.startx,b.starty)
-                    ctx.lineTo(b.targetx,b.targety)
-                    ctx.strokeStyle = 'rgba(64,220,255,'+(0.5 * (1.0-sfd))+')'
-                    ctx.lineWidth = 4
-                    ctx.stroke()
-                    ctx.strokeStyle = 'rgba(17,102,176,'+(1.0-sfd)+')'
-                    ctx.lineWidth = 2
-                    ctx.stroke()
-                }
-            }
-        }
+    // Explosions (order by shots first, then bombs)
+    let shotlist = []
+    for (let i in shots) {
+        shotlist.push(shots[i])
     }
-    // Explosions (all drawn after shots)
-    for (i in shots) {
-        let s = shots[i]
+    shotlist.sort(function(a,b) { return a.zIndex - b.zIndex })
+    // Draw them
+    for (let i = 0; i < shotlist.length; i++) {
+        let s = shotlist[i]
         if (s.tick <= now) {
             if (s.state == 'boom') {
                 let bpos = (now - s.tick) / s.boomtime
                 let bsz = Math.sqrt(bpos) * s.boomsize
+                ctx.fillStyle = s.boomFill
+                ctx.strokeStyle = s.boomStroke
+                ctx.lineWidth = s.boomLine
                 ctx.beginPath()
                 ctx.arc(s.targetx, s.targety, bsz, 0, Math.PI*2)
-                ctx.fillStyle = '#de8'
-                ctx.strokeStyle = 'rgba(64,220,255,0.5)'
-                ctx.lineWidth = 2
                 ctx.stroke()
                 ctx.fill()
                 if (bpos >= 1) {
@@ -444,7 +408,7 @@ function animate(mybase)
                     ctx.beginPath()
                     ctx.arc(xo, yo, fsz, 0, Math.PI*2)
                     ctx.fillStyle = 'rgba(0,17,34,1)'
-                    ctx.strokeStyle = 'rgba(0,17,34,1)'
+                    ctx.strokeStyle = 'rgba(0,17,34,0.5)'
                     ctx.lineWidth = 2
                     ctx.stroke()
                     ctx.fill()
@@ -456,44 +420,4 @@ function animate(mybase)
             }
         }
     }
-
-    for (i in bombs) {
-        let b = bombs[i]
-        if (b.tick <= now) {
-            if (b.state == 'boom') {
-                let bpos = (now - b.tick) / b.boomtime
-                let bsz = Math.sqrt(bpos) * b.boomsize
-                if (b.target == 'ground') {
-                    ctx.fillStyle = '#f77'
-                    ctx.strokeStyle = 'rgba(64,220,255,0.5)'
-                } else {
-                    ctx.fillStyle = '#77f'
-                    ctx.strokeStyle = 'rgba(220,64,255,0.5)'
-                }
-                ctx.lineWidth = 1
-                ctx.beginPath()
-                ctx.arc(b.targetx, b.targety, bsz, 0, Math.PI*2)
-                ctx.stroke()
-                ctx.fill()
-                if (bpos >= 1) {
-                    bpos = (now - b.tick - b.boomtime) / b.fadetime
-                    let fsz = bpos * b.boomsize * 1.2
-                    let xo = b.targetx + Math.sin(b.ofa)*((b.boomsize*1.5)-fsz)/2
-                    let yo = b.targety - Math.cos(b.ofa)*((b.boomsize*1.5)-fsz)/2
-                    ctx.beginPath()
-                    ctx.arc(xo, yo, fsz, 0, Math.PI*2)
-                    ctx.fillStyle = 'rgba(0,17,34,1)'
-                    ctx.strokeStyle = 'rgba(0,17,34,0.5)'
-                    ctx.lineWidth = 2
-                    ctx.stroke()
-                    ctx.fill()
-                    if (bpos >= 1) {
-                        b.state = 'done'
-                        delete bombs[b.id]
-                    }
-                }
-            }
-        }
-    }
-
 }
