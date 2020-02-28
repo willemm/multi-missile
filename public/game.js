@@ -34,9 +34,6 @@ let pressed_down = false
 let timedrift = null
 let newtimedrift = null
 
-// let tmr
-// let ctx
-
 window.onresize = function() {
     let canvas = document.getElementById('canvas')
     canvas.width = canvas.height * canvas.offsetWidth / canvas.offsetHeight
@@ -157,7 +154,9 @@ function setup_socket(socket)
         }
     })
     socket.on('base', function(base) {
-        bases[base.id] = base
+        if (!base.player || (base.player.id != player.id)) {
+            bases[base.id] = base
+        }
     })
     socket.on('now', function(now) {
         newtimedrift = (now - (new Date().getTime()))
